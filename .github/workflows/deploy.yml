@@ -1,0 +1,33 @@
+name: Deploy static site
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  deploy:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare deployment directory
+        run: |
+          mkdir -p deploy
+          rsync -av --delete \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            --exclude 'deploy/' \
+            ./ deploy
+
+      - name: Deploy to branch
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: ${{ github.ref_name }}
+          folder: deploy
+          commit-message: "Deploy static site from ${{ github.ref_name }} (${{ github.sha }})"
