@@ -1,43 +1,72 @@
-# Simple workflow for deploying static content to GitHub Pages
-name: Deploy static content to Pages
+name: Sync branches into test and deploy
 
 on:
-  # Runs on pushes targeting any branch
   push:
-    branches: '**'
-
-  # Allows you to run this workflow manually from the Actions tab
+    branches-ignore:
+      - test
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
 concurrency:
-  group: pages-${{ github.ref }}
+  group: pages-test
   cancel-in-progress: false
 
 jobs:
-  # Single deploy job since we're just deploying
-  deploy:
-    environment:
-      name: ${{ github.ref_name }}
-      url: ${{ steps.deployment.outputs.page_url }}
+  merge-and-deploy:
     runs-on: ubuntu-latest
+    env:
+      SOURCE_BRANCH: ${{ github.ref_name }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare test branch
+        run: |
+          set -euo pipefail
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+          git fetch origin main "$SOURCE_BRANCH"
+
+          if git ls-remote --exit-code --heads origin test >/dev/null 2>&1; then
+            git fetch origin test
+            git checkout test
+            git reset --hard origin/test
+          else
+            echo "Branch 'test' does not exist on origin. Creating from 'main'."
+            git checkout -B test origin/main
+            git push origin test
+          fi
+
+          git merge --no-ff --no-edit "origin/$SOURCE_BRANCH"
+          git push origin test
+
+      - name: Delete source branch
+        if: success() && env.SOURCE_BRANCH != 'test' && env.SOURCE_BRANCH != env.DEFAULT_BRANCH
+        run: |
+          set -euo pipefail
+          git push origin --delete "$SOURCE_BRANCH"
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
           path: '.'
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+    environment:
+      name: test
+      url: ${{ steps.deployment.outputs.page_url }}
