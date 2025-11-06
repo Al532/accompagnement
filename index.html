@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestion des rendez-vous</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>Gestionnaire de créneaux</h1>
+    <div class="mode-toggle">
+      <label for="modeSwitch">Mode enseignant</label>
+      <input type="checkbox" id="modeSwitch" checked />
+      <label for="modeSwitch" class="switch-label" data-teacher="Enseignant" data-student="Élève"></label>
+    </div>
+  </header>
+
+  <main class="app-container">
+    <section class="settings" aria-label="Configuration des créneaux">
+      <h2>Configuration</h2>
+      <form id="settingsForm" class="settings__form">
+        <div class="form-field">
+          <label for="startDate">Date de début</label>
+          <input type="date" id="startDate" required />
+        </div>
+        <div class="form-field">
+          <label for="daysToDisplay">Nombre de jours affichés</label>
+          <input type="number" id="daysToDisplay" min="1" max="14" value="5" />
+        </div>
+        <div class="form-row">
+          <div class="form-field">
+            <label for="startHour">Heure de début</label>
+            <input type="time" id="startHour" value="08:00" />
+          </div>
+          <div class="form-field">
+            <label for="endHour">Heure de fin</label>
+            <input type="time" id="endHour" value="18:00" />
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="slotDuration">Durée d'un créneau (minutes)</label>
+          <input type="number" id="slotDuration" min="10" step="5" value="30" />
+        </div>
+        <fieldset class="contiguous-rule">
+          <legend>Règle d'ouverture contiguë</legend>
+          <label class="checkbox-field">
+            <input type="checkbox" id="contiguousEnabled" checked />
+            <span>Activer</span>
+          </label>
+          <label class="checkbox-field">
+            <span>Nombre de créneaux à ouvrir d'un bloc</span>
+            <input type="number" id="contiguousCount" min="1" max="6" value="2" />
+          </label>
+        </fieldset>
+        <button type="submit" class="button button--primary">Mettre à jour</button>
+        <button type="button" id="resetButton" class="button">Réinitialiser les créneaux</button>
+      </form>
+    </section>
+
+    <section class="schedule" aria-label="Créneaux disponibles">
+      <header class="schedule__header">
+        <button class="button" id="previousWeek" type="button">◀</button>
+        <h2 id="scheduleTitle">Semaine</h2>
+        <button class="button" id="nextWeek" type="button">▶</button>
+      </header>
+      <div class="schedule__legend">
+        <span class="legend-item legend-item--closed">Fermé</span>
+        <span class="legend-item legend-item--open">Ouvert</span>
+        <span class="legend-item legend-item--reserved">Réservé</span>
+      </div>
+      <div id="scheduleGrid" class="schedule__grid" role="grid" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <template id="slotTemplate">
+    <button class="slot" type="button">
+      <span class="slot__time"></span>
+      <span class="slot__status"></span>
+      <span class="slot__details"></span>
+    </button>
+  </template>
+
+  <dialog id="reservationDialog">
+    <form method="dialog">
+      <h3>Réserver ce créneau</h3>
+      <p id="reservationSlotLabel"></p>
+      <label class="form-field">
+        <span>Nom</span>
+        <input type="text" id="studentName" required />
+      </label>
+      <label class="form-field">
+        <span>Commentaire (optionnel)</span>
+        <textarea id="studentNote" rows="3"></textarea>
+      </label>
+      <menu>
+        <button value="cancel" class="button">Annuler</button>
+        <button value="confirm" class="button button--primary">Confirmer</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="confirmationDialog">
+    <form method="dialog">
+      <p id="confirmationMessage"></p>
+      <menu>
+        <button value="cancel" class="button">Non</button>
+        <button value="confirm" class="button button--danger">Oui</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
