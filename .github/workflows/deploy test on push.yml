@@ -29,25 +29,29 @@ jobs:
 
       - name: Prepare test branch
         run: |
-          set -euo pipefail
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            set -euo pipefail
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-          git fetch origin main "$SOURCE_BRANCH"
+            # Récupérer ce qu'il faut côté remote (branche par défaut + test si elle existe)
+            git fetch origin "$DEFAULT_BRANCH" || true
+            if git ls-remote --exit-code --heads origin test >/dev/null 2>&1; then
+              git fetch origin test
+              git checkout test
+              git reset --hard origin/test
+            else
+              echo "Branch 'test' does not exist on origin. Creating from default branch '$DEFAULT_BRANCH'."
+              git checkout -B test "origin/$DEFAULT_BRANCH"
+              git push origin test
+            fi
 
-          if git ls-remote --exit-code --heads origin test >/dev/null 2>&1; then
-            git fetch origin test
-            git checkout test
-            git reset --hard origin/test
-          else
-            echo "Branch 'test' does not exist on origin. Creating from 'main'."
-            git checkout -B test origin/main
+            # Merger le commit exact qui a déclenché le workflow (plus fiable que origin/$SOURCE_BRANCH)
+            git merge --no-ff --no-edit "$GITHUB_SHA"
+
+            # Pousser test
             git push origin test
-          fi
 
-          git merge --no-ff --no-edit "origin/$SOURCE_BRANCH"
-          git push origin test
 
       - name: Delete source branch
         if: success() && env.SOURCE_BRANCH != 'test' && env.SOURCE_BRANCH != env.DEFAULT_BRANCH
