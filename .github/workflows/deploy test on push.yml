@@ -2,8 +2,13 @@ name: Sync branches into test and deploy
 
 on:
   push:
+    branches:
+      - '**'
     branches-ignore:
       - test
+      - gh-pages
+    tags-ignore:
+      - '**'
   workflow_dispatch:
 
 permissions:
@@ -29,35 +34,40 @@ jobs:
 
       - name: Prepare test branch
         run: |
-            set -euo pipefail
-            git config --global user.name "github-actions[bot]"
-            git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          set -euo pipefail
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-            # Récupérer ce qu'il faut côté remote (branche par défaut + test si elle existe)
-            git fetch origin "$DEFAULT_BRANCH" || true
-            if git ls-remote --exit-code --heads origin test >/dev/null 2>&1; then
-              git fetch origin test
-              git checkout test
-              git reset --hard origin/test
-            else
-              echo "Branch 'test' does not exist on origin. Creating from default branch '$DEFAULT_BRANCH'."
-              git checkout -B test "origin/$DEFAULT_BRANCH"
-              git push origin test
-            fi
+          # Ne rien faire si la source est déjà 'test' ou 'gh-pages'
+          if [[ "$SOURCE_BRANCH" == "test" || "$SOURCE_BRANCH" == "gh-pages" ]]; then
+            echo "Source is $SOURCE_BRANCH; nothing to merge."
+            exit 0
+          fi
 
-            # Merger le commit exact qui a déclenché le workflow (plus fiable que origin/$SOURCE_BRANCH)
-            git merge --no-ff --no-edit "$GITHUB_SHA"
-
-            # Pousser test
+          # Récupérer la branche par défaut et 'test' si elle existe
+          git fetch origin "$DEFAULT_BRANCH" || true
+          if git ls-remote --exit-code --heads origin test >/dev/null 2>&1; then
+            git fetch origin test
+            git checkout test
+            git reset --hard origin/test
+          else
+            echo "Branch 'test' does not exist on origin. Creating from default branch '$DEFAULT_BRANCH'."
+            git checkout -B test "origin/$DEFAULT_BRANCH"
             git push origin test
+          fi
 
+          # Merger le commit exact du push (plus fiable qu'une ref distante)
+          git merge --no-ff --no-edit "$GITHUB_SHA"
+
+          # Pousser 'test'
+          git push origin test
 
       - name: Delete source branch
-        if: success() && env.SOURCE_BRANCH != 'test' && env.SOURCE_BRANCH != env.DEFAULT_BRANCH
+        if: ${{ success() && env.SOURCE_BRANCH != 'test' && env.SOURCE_BRANCH != env.DEFAULT_BRANCH && env.SOURCE_BRANCH != 'gh-pages' }}
         run: |
           set -euo pipefail
-          git push origin --delete "$SOURCE_BRANCH"
+          git push origin --delete "$SOURCE_BRANCH" || echo "Could not delete $SOURCE_BRANCH (maybe protected)."
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
