@@ -1,73 +1,104 @@
-name: Sync branches into test and deploy
+name: Retarget PR to test, merge, delete source, and deploy
 
 on:
-  push:
-    branches:
-      - '**'
-    branches-ignore:
-      - test
-      - gh-pages
-    tags-ignore:
-      - '**'
-  workflow_dispatch:
+  pull_request:
+    types: [opened]
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: write         # pour créer la branche test, pousser, supprimer refs
+  pull-requests: write    # pour retarget + merger la PR
+  pages: write            # pour déployer Pages
+  id-token: write         # requis par deploy-pages
 
 concurrency:
   group: pages-test
   cancel-in-progress: false
 
 jobs:
-  merge-and-deploy:
+  retarget-merge-deploy:
     runs-on: ubuntu-latest
     env:
-      SOURCE_BRANCH: ${{ github.ref_name }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
-      - name: Checkout
+      - name: Ensure 'test' branch exists, retarget PR to 'test', and merge
+        id: pr_ops
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const prNumber = pr.number;
+            const headRef  = pr.head.ref; // nom de la branche source
+            const headRepo = pr.head.repo.full_name; // repo de la branche source
+            const baseRepo = pr.base.repo.full_name; // repo de destination
+            const defaultBranch = process.env.DEFAULT_BRANCH;
+
+            // 1) S'assurer que la branche 'test' existe (sinon, la créer depuis la branche par défaut)
+            let hasTest = true;
+            try {
+              await github.rest.git.getRef({ owner, repo, ref: "heads/test" });
+            } catch (e) {
+              if (e.status === 404) { hasTest = false; } else { throw e; }
+            }
+
+            if (!hasTest) {
+              // Récupérer le SHA de la branche par défaut
+              const defRef = await github.rest.git.getRef({
+                owner, repo, ref: `heads/${defaultBranch}`
+              });
+              const sha = defRef.data.object.sha;
+
+              await github.rest.git.createRef({
+                owner, repo, ref: "refs/heads/test", sha
+              });
+              core.info(`Created 'test' from '${defaultBranch}' @ ${sha}`);
+            } else {
+              core.info("Branch 'test' already exists.");
+            }
+
+            // 2) Retarget PR vers 'test' si nécessaire
+            if (pr.base.ref !== "test") {
+              await github.rest.pulls.update({
+                owner, repo, pull_number: prNumber, base: "test"
+              });
+              core.info(`PR #${prNumber} retargeted to 'test'`);
+            } else {
+              core.info("PR already targets 'test'.");
+            }
+
+            // 3) Tenter le merge de la PR (merge commit)
+            try {
+              const mergeRes = await github.rest.pulls.merge({
+                owner, repo, pull_number: prNumber, merge_method: "merge"
+              });
+              if (!mergeRes.data.merged) {
+                core.setFailed(`PR #${prNumber} could not be merged: ${mergeRes.data.message}`);
+                return;
+              }
+              core.info(`PR #${prNumber} merged successfully.`);
+            } catch (e) {
+              core.setFailed(`Merge failed for PR #${prNumber}: ${e.message}`);
+              return;
+            }
+
+            // 4) Supprimer la branche source si c'est le même dépôt (pas un fork)
+            if (headRepo === baseRepo) {
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${headRef}` });
+                core.info(`Deleted source branch '${headRef}'.`);
+              } catch (e) {
+                core.warning(`Could not delete source branch '${headRef}': ${e.message}`);
+              }
+            } else {
+              core.info("PR from a fork; skipping branch deletion.");
+            }
+
+      # Après merge, on déploie le contenu de la branche 'test'
+      - name: Checkout test
         uses: actions/checkout@v4
         with:
+          ref: test
           fetch-depth: 0
-
-      - name: Prepare test branch
-        run: |
-          set -euo pipefail
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-          # Ne rien faire si la source est déjà 'test' ou 'gh-pages'
-          if [[ "$SOURCE_BRANCH" == "test" || "$SOURCE_BRANCH" == "gh-pages" ]]; then
-            echo "Source is $SOURCE_BRANCH; nothing to merge."
-            exit 0
-          fi
-
-          # Récupérer la branche par défaut et 'test' si elle existe
-          git fetch origin "$DEFAULT_BRANCH" || true
-          if git ls-remote --exit-code --heads origin test >/dev/null 2>&1; then
-            git fetch origin test
-            git checkout test
-            git reset --hard origin/test
-          else
-            echo "Branch 'test' does not exist on origin. Creating from default branch '$DEFAULT_BRANCH'."
-            git checkout -B test "origin/$DEFAULT_BRANCH"
-            git push origin test
-          fi
-
-          # Merger le commit exact du push (plus fiable qu'une ref distante)
-          git merge --no-ff --no-edit "$GITHUB_SHA"
-
-          # Pousser 'test'
-          git push origin test
-
-      - name: Delete source branch
-        if: ${{ success() && env.SOURCE_BRANCH != 'test' && env.SOURCE_BRANCH != env.DEFAULT_BRANCH && env.SOURCE_BRANCH != 'gh-pages' }}
-        run: |
-          set -euo pipefail
-          git push origin --delete "$SOURCE_BRANCH" || echo "Could not delete $SOURCE_BRANCH (maybe protected)."
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
